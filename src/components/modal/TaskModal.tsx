@@ -273,13 +273,17 @@ export function TaskModal({
             <label className="block text-[11px] font-mono-tech uppercase text-[#A0A0A0] mb-1">
               Workflow Location
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div
+              className={`w-full grid gap-2 ${
+                isNew ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+              }`}
+            >
               {(isNew ? CREATE_ALLOWED_STATUSES : ALL_STATUSES).map((st) => (
                 <button
                   key={st.id}
                   type="button"
                   onClick={() => setStatus(st.id)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-mono-tech cursor-pointer ${
+                  className={`w-full rounded-lg border py-2 px-3 text-xs font-mono-tech cursor-pointer text-center transition-colors ${
                     status === st.id
                       ? 'bg-white text-[#1A1A1A] border-white font-semibold'
                       : 'bg-[#1A1A1A] text-[#A0A0A0] border-[#222222] hover:text-white'

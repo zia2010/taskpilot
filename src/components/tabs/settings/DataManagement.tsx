@@ -6,12 +6,14 @@ interface DataManagementProps {
   allTasks: Task[];
   onArchiveStatusToHistory: (statuses: BoardStatus | BoardStatus[]) => void;
   onResetDemoData: () => void;
+  syncStatus?: 'syncing' | 'live' | 'error';
 }
 
 export const DataManagement = memo(function DataManagement({
   allTasks,
   onArchiveStatusToHistory,
   onResetDemoData,
+  syncStatus = 'live',
 }: DataManagementProps) {
   const doneAndCancelledCount = useMemo(
     () =>
@@ -41,9 +43,31 @@ export const DataManagement = memo(function DataManagement({
             Workspace Data Management
           </h2>
         </div>
-        <span className="inline-flex items-center gap-1.5 text-xs font-mono-tech text-[#FFA489] self-start sm:self-auto">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#FFA489]" />
-          <span>Local Storage Synced</span>
+        <span className="inline-flex items-center gap-1.5 text-xs font-mono-tech self-start sm:self-auto">
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              syncStatus === 'syncing'
+                ? 'bg-[#FFA489] animate-pulse'
+                : syncStatus === 'error'
+                ? 'bg-[#EF4444]'
+                : 'bg-[#10B981]'
+            }`}
+          />
+          <span
+            className={
+              syncStatus === 'syncing'
+                ? 'text-[#FFA489]'
+                : syncStatus === 'error'
+                ? 'text-[#EF4444]'
+                : 'text-[#10B981]'
+            }
+          >
+            {syncStatus === 'syncing'
+              ? 'Supabase Syncing'
+              : syncStatus === 'error'
+              ? 'Supabase Disconnected'
+              : 'Supabase Synced'}
+          </span>
         </span>
       </div>
 

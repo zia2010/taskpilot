@@ -5,6 +5,7 @@ import {
   Archive,
   History,
   Settings,
+  Compass,
 } from 'lucide-react';
 
 import type {
@@ -22,7 +23,6 @@ import type {
 } from './types';
 
 import {
-  TASKS_STORAGE_KEY,
   SETTINGS_STORAGE_KEY,
   DEFAULT_SETTINGS,
 } from './constants';
@@ -30,6 +30,12 @@ import { THEME_STYLES } from './styles/theme';
 import { TaskService } from './services/taskService';
 import { DateService } from './services/dateService';
 import { createSeedTasks } from './services/seedData';
+import {
+  supabase,
+  mapRowToTask,
+  mapTaskToRow,
+  type TaskRow,
+} from './lib/supabase';
 
 import { usePersistentStorage } from './hooks/usePersistentStorage';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
@@ -47,10 +53,10 @@ import { HistoryTab } from './components/tabs/history/HistoryTab';
 import { SettingsTab } from './components/tabs/settings/SettingsTab';
 
 export default function App() {
-  const [tasks, setTasks] = usePersistentStorage<Task[]>(
-    TASKS_STORAGE_KEY,
-    createSeedTasks
-  );
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [syncStatus, setSyncStatus] = useState<'syncing' | 'live' | 'error'>('syncing');
+
   const [settings, setSettings] = usePersistentStorage<AppSettings>(
     SETTINGS_STORAGE_KEY,
     () => DEFAULT_SETTINGS
@@ -99,6 +105,57 @@ export default function App() {
     const interval = setInterval(() => setNowMs(Date.now()), 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Initial Load from Supabase
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchInitialTasks() {
+      setSyncStatus('syncing');
+      try {
+        const { data, error } = await supabase
+          .from('tasks')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          throw error;
+        }
+
+        if (isMounted) {
+          if (data && data.length > 0) {
+            const loadedTasks = (data as TaskRow[]).map(mapRowToTask);
+            setTasks(loadedTasks);
+          } else {
+            // First run on blank table: seed sample tasks into Supabase
+            const seedTasks = createSeedTasks();
+            setTasks(seedTasks);
+            const { error: seedError } = await supabase
+              .from('tasks')
+              .insert(seedTasks.map(mapTaskToRow));
+            if (seedError) {
+              console.warn('Initial seed error:', seedError);
+            }
+          }
+          setSyncStatus('live');
+          setIsLoading(false);
+        }
+      } catch (err) {
+        console.error('Supabase fetch error:', err);
+        if (isMounted) {
+          // Fallback to demo seed tasks in case table is not ready or network fails
+          setTasks(createSeedTasks());
+          setSyncStatus('error');
+          setIsLoading(false);
+          triggerToast('Failed to connect to Supabase. Loaded demo tasks.');
+        }
+      }
+    }
+
+    fetchInitialTasks();
+    return () => {
+      isMounted = false;
+    };
+  }, [triggerToast]);
 
   // Filter setters that reset pagination without cascading effect re-renders
   const handleBoardSearchChange = useCallback((val: string) => {
@@ -301,12 +358,15 @@ export default function App() {
     historyPage,
   ]);
 
-  // Task mutation handlers
+  // Task mutation handlers with optimistic UI updates and Supabase sync
   const handleStatusChange = useCallback(
-    (taskId: string, nextStatus: TaskStatus) => {
+    async (taskId: string, nextStatus: TaskStatus) => {
       const completedAt = nextStatus === 'DONE' ? new Date().toISOString() : null;
-      setTasks((prev) =>
-        prev.map((t) =>
+      let originalTask: Task | undefined;
+
+      setTasks((prev) => {
+        originalTask = prev.find((t) => t.id === taskId);
+        return prev.map((t) =>
           t.id === taskId
             ? {
                 ...t,
@@ -316,19 +376,48 @@ export default function App() {
                 archivedAt: null,
               }
             : t
-        )
-      );
+        );
+      });
+
       if (nextStatus === 'BACKLOG') triggerToast('Moved back to Backlog');
       if (nextStatus === 'DONE') triggerToast('Task marked Done');
+
+      setSyncStatus('syncing');
+      try {
+        const { error } = await supabase
+          .from('tasks')
+          .update({
+            status: nextStatus,
+            completed_at: completedAt,
+            archived_from: null,
+            archived_at: null,
+          })
+          .eq('id', taskId);
+
+        if (error) throw error;
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Status change error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to update status in Supabase');
+        if (originalTask) {
+          setTasks((prev) =>
+            prev.map((t) => (t.id === taskId ? (originalTask as Task) : t))
+          );
+        }
+      }
     },
-    [setTasks, triggerToast]
+    [triggerToast]
   );
 
   const handlePullToBoard = useCallback(
-    (task: Task) => {
+    async (task: Task) => {
       const freshDue = DateService.getDefaultDueDate(task.cadence);
-      setTasks((prev) =>
-        prev.map((t) =>
+      let originalTask: Task | undefined;
+
+      setTasks((prev) => {
+        originalTask = prev.find((t) => t.id === task.id);
+        return prev.map((t) =>
           t.id === task.id
             ? {
                 ...t,
@@ -339,28 +428,51 @@ export default function App() {
                 archivedAt: null,
               }
             : t
-        )
-      );
+        );
+      });
+
       triggerToast(`Pulled ${TaskService.formatTskKey(task.tskNumber)} to Board`);
+
+      setSyncStatus('syncing');
+      try {
+        const { error } = await supabase
+          .from('tasks')
+          .update({
+            status: 'TODO',
+            due_at: freshDue,
+            completed_at: null,
+            archived_from: null,
+            archived_at: null,
+          })
+          .eq('id', task.id);
+
+        if (error) throw error;
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Pull to board error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to pull task in Supabase');
+        if (originalTask) {
+          setTasks((prev) =>
+            prev.map((t) => (t.id === task.id ? (originalTask as Task) : t))
+          );
+        }
+      }
     },
-    [setTasks, triggerToast]
+    [triggerToast]
   );
 
-  // Moves all DONE or CANCELLED board tasks into the History archive tab
   const handleArchiveStatusToHistory = useCallback(
-    (sourceStatuses: BoardStatus | BoardStatus[]) => {
+    async (sourceStatuses: BoardStatus | BoardStatus[]) => {
       const statusesToArchive = Array.isArray(sourceStatuses)
         ? sourceStatuses
         : [sourceStatuses];
       const nowIso = new Date().toISOString();
-      const matchingCount = tasks.filter((t) =>
-        statusesToArchive.includes(t.status as BoardStatus)
-      ).length;
+      let previousTasks: Task[] = [];
 
-      if (matchingCount === 0) return;
-
-      setTasks((prev) =>
-        prev.map((t) =>
+      setTasks((prev) => {
+        previousTasks = prev;
+        return prev.map((t) =>
           statusesToArchive.includes(t.status as BoardStatus)
             ? {
                 ...t,
@@ -369,8 +481,24 @@ export default function App() {
                 archivedAt: nowIso,
               }
             : t
+        );
+      });
+
+      const matchingDoneIds = previousTasks
+        .filter(
+          (t) => statusesToArchive.includes(t.status as BoardStatus) && t.status === 'DONE'
         )
-      );
+        .map((t) => t.id);
+      const matchingCancelledIds = previousTasks
+        .filter(
+          (t) =>
+            statusesToArchive.includes(t.status as BoardStatus) &&
+            t.status === 'CANCELLED'
+        )
+        .map((t) => t.id);
+
+      const matchingCount = matchingDoneIds.length + matchingCancelledIds.length;
+      if (matchingCount === 0) return;
 
       const label =
         statusesToArchive.length > 1
@@ -381,15 +509,51 @@ export default function App() {
       triggerToast(
         `Moved ${matchingCount} ${label} ticket${matchingCount === 1 ? '' : 's'} to History`
       );
+
+      setSyncStatus('syncing');
+      try {
+        if (matchingDoneIds.length > 0) {
+          const { error: doneErr } = await supabase
+            .from('tasks')
+            .update({
+              status: 'HISTORY',
+              archived_from: 'DONE',
+              archived_at: nowIso,
+            })
+            .in('id', matchingDoneIds);
+          if (doneErr) throw doneErr;
+        }
+
+        if (matchingCancelledIds.length > 0) {
+          const { error: cancErr } = await supabase
+            .from('tasks')
+            .update({
+              status: 'HISTORY',
+              archived_from: 'CANCELLED',
+              archived_at: nowIso,
+            })
+            .in('id', matchingCancelledIds);
+          if (cancErr) throw cancErr;
+        }
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Archive to history error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to archive tasks to Supabase');
+        setTasks(previousTasks);
+      }
     },
-    [tasks, setTasks, triggerToast]
+    [triggerToast]
   );
 
   const handleRestoreFromHistory = useCallback(
-    (task: Task, targetStatus: 'TODO' | 'BACKLOG' = 'TODO') => {
+    async (task: Task, targetStatus: 'TODO' | 'BACKLOG' = 'TODO') => {
       const freshDue = DateService.getDefaultDueDate(task.cadence);
-      setTasks((prev) =>
-        prev.map((t) =>
+      let originalTask: Task | undefined;
+
+      setTasks((prev) => {
+        originalTask = prev.find((t) => t.id === task.id);
+        return prev.map((t) =>
           t.id === task.id
             ? {
                 ...t,
@@ -400,26 +564,106 @@ export default function App() {
                 archivedAt: null,
               }
             : t
-        )
-      );
+        );
+      });
+
       triggerToast(
         `Restored ${TaskService.formatTskKey(task.tskNumber)} to ${
           targetStatus === 'BACKLOG' ? 'Backlog' : 'Board'
         }`
       );
+
+      setSyncStatus('syncing');
+      try {
+        const { error } = await supabase
+          .from('tasks')
+          .update({
+            status: targetStatus,
+            due_at: freshDue,
+            completed_at: null,
+            archived_from: null,
+            archived_at: null,
+          })
+          .eq('id', task.id);
+
+        if (error) throw error;
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Restore error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to restore task in Supabase');
+        if (originalTask) {
+          setTasks((prev) =>
+            prev.map((t) => (t.id === task.id ? (originalTask as Task) : t))
+          );
+        }
+      }
     },
-    [setTasks, triggerToast]
+    [triggerToast]
   );
 
-  const handlePurgeHistory = useCallback(() => {
-    setTasks((prev) => prev.filter((t) => t.status !== 'HISTORY'));
-    triggerToast('Permanently purged all History records');
-  }, [setTasks, triggerToast]);
+  const handlePurgeHistory = useCallback(
+    async () => {
+      let originalTasks: Task[] = [];
+      setTasks((prev) => {
+        originalTasks = prev;
+        return prev.filter((t) => t.status !== 'HISTORY');
+      });
+      triggerToast('Permanently purged all History records');
 
-  const handleResetDemoData = useCallback(() => {
-    setTasks(createSeedTasks());
-    triggerToast('Reset workspace to demo dataset');
-  }, [setTasks, triggerToast]);
+      setSyncStatus('syncing');
+      try {
+        const { error } = await supabase
+          .from('tasks')
+          .delete()
+          .eq('status', 'HISTORY');
+
+        if (error) throw error;
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Purge error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to purge history in Supabase');
+        setTasks(originalTasks);
+      }
+    },
+    [triggerToast]
+  );
+
+  const handleResetDemoData = useCallback(
+    async () => {
+      let originalTasks: Task[] = [];
+      const newSeed = createSeedTasks();
+      setTasks((prev) => {
+        originalTasks = prev;
+        return newSeed;
+      });
+      triggerToast('Reset workspace to demo dataset');
+
+      setSyncStatus('syncing');
+      try {
+        // Clear all tasks
+        const { error: delErr } = await supabase
+          .from('tasks')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        if (delErr) throw delErr;
+
+        const { error: insErr } = await supabase
+          .from('tasks')
+          .insert(newSeed.map(mapTaskToRow));
+        if (insErr) throw insErr;
+
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Reset demo data error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to reset demo dataset in Supabase');
+        setTasks(originalTasks);
+      }
+    },
+    [triggerToast]
+  );
 
   const handleOpenCreateModal = useCallback((defaultStatus: 'TODO' | 'BACKLOG' = 'TODO') => {
     setModalState({
@@ -445,22 +689,77 @@ export default function App() {
     });
   }, [usedTskNumbers]);
 
-  const handleSaveModalTask = useCallback((savedTask: Task) => {
-    if (modalState?.mode === 'edit') {
-      setTasks((prev) => prev.map((t) => (t.id === savedTask.id ? savedTask : t)));
-      triggerToast(`Updated ${TaskService.formatTskKey(savedTask.tskNumber)}`);
-    } else {
-      setTasks((prev) => [savedTask, ...prev]);
-      triggerToast(`Created ${TaskService.formatTskKey(savedTask.tskNumber)}`);
-    }
-    setModalState(null);
-  }, [modalState?.mode, setTasks, triggerToast]);
+  const handleSaveModalTask = useCallback(
+    async (savedTask: Task) => {
+      const mode = modalState?.mode;
+      const isEdit = mode === 'edit';
+      setModalState(null);
 
-  const handleDeleteTask = useCallback((id: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-    setModalState(null);
-    triggerToast('Ticket deleted');
-  }, [setTasks, triggerToast]);
+      // Optimistic state update
+      setTasks((prev) => {
+        if (isEdit) {
+          return prev.map((t) => (t.id === savedTask.id ? savedTask : t));
+        }
+        return [savedTask, ...prev];
+      });
+
+      triggerToast(
+        isEdit
+          ? `Updated ${TaskService.formatTskKey(savedTask.tskNumber)}`
+          : `Created ${TaskService.formatTskKey(savedTask.tskNumber)}`
+      );
+
+      setSyncStatus('syncing');
+      try {
+        if (isEdit) {
+          const { error } = await supabase
+            .from('tasks')
+            .update(mapTaskToRow(savedTask))
+            .eq('id', savedTask.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('tasks')
+            .insert([mapTaskToRow(savedTask)]);
+          if (error) throw error;
+        }
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Save task error:', err);
+        setSyncStatus('error');
+        triggerToast(`Failed to sync ${TaskService.formatTskKey(savedTask.tskNumber)} to Supabase`);
+        if (!isEdit) {
+          setTasks((prev) => prev.filter((t) => t.id !== savedTask.id));
+        }
+      }
+    },
+    [modalState?.mode, triggerToast]
+  );
+
+  const handleDeleteTask = useCallback(
+    async (id: string) => {
+      let originalTasks: Task[] = [];
+      setTasks((prev) => {
+        originalTasks = prev;
+        return prev.filter((t) => t.id !== id);
+      });
+      setModalState(null);
+      triggerToast('Ticket deleted');
+
+      setSyncStatus('syncing');
+      try {
+        const { error } = await supabase.from('tasks').delete().eq('id', id);
+        if (error) throw error;
+        setSyncStatus('live');
+      } catch (err) {
+        console.error('Delete task error:', err);
+        setSyncStatus('error');
+        triggerToast('Failed to delete ticket in Supabase');
+        setTasks(originalTasks);
+      }
+    },
+    [triggerToast]
+  );
 
   const handleJumpToBoard = useCallback((quadrant: 'ALL' | PriorityQuadrant = 'ALL') => {
     setBoardQuadrant(quadrant);
@@ -518,6 +817,26 @@ export default function App() {
     ]
   );
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#1A1A1A] text-white flex flex-col items-center justify-center p-4">
+        <style>{THEME_STYLES}</style>
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <div className="relative w-14 h-14 rounded-2xl bg-[#FF4D12] flex items-center justify-center shadow-2xl shadow-[#FF4D12]/30 animate-pulse">
+            <Compass className="w-8 h-8 text-white animate-spin" style={{ animationDuration: '4s' }} />
+          </div>
+          <div>
+            <h1 className="font-display text-xl font-bold tracking-tight text-white">TaskPilot</h1>
+            <p className="text-xs font-mono-tech text-[#FFA489] mt-1">CONNECTING TO SUPABASE...</p>
+          </div>
+          <div className="w-48 h-1.5 bg-[#222222] rounded-full overflow-hidden mt-2">
+            <div className="h-full bg-[#FF4D12] rounded-full w-2/3 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#1A1A1A] text-white flex flex-col lg:flex-row w-full overflow-x-hidden">
       <style>{THEME_STYLES}</style>
@@ -528,6 +847,7 @@ export default function App() {
         onTabChange={setActiveTab}
         navItems={navItems}
         telemetry={telemetry}
+        syncStatus={syncStatus}
         onOpenCreate={handleOpenCreateModal}
       />
 
@@ -637,6 +957,7 @@ export default function App() {
               allTasks={tasks}
               onArchiveStatusToHistory={handleArchiveStatusToHistory}
               onResetDemoData={handleResetDemoData}
+              syncStatus={syncStatus}
             />
           )}
         </div>

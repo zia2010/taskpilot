@@ -7,6 +7,7 @@ interface SidebarProps {
   onTabChange: (tab: NavTab) => void;
   navItems: NavItemConfig[];
   telemetry: DashboardTelemetry;
+  syncStatus?: 'syncing' | 'live' | 'error';
   onOpenCreate: (defaultStatus?: 'TODO' | 'BACKLOG') => void;
 }
 
@@ -15,6 +16,7 @@ export const Sidebar = memo(function Sidebar({
   onTabChange,
   navItems,
   telemetry,
+  syncStatus = 'live',
   onOpenCreate,
 }: SidebarProps) {
   return (
@@ -84,9 +86,31 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       <div className="rounded-lg border border-[#222222] bg-[#1A1A1A] px-3 py-2.5 flex items-center justify-between text-[11px] font-mono-tech">
-        <span className="inline-flex items-center gap-1.5 text-[#A0A0A0]">
-          <span className="w-2 h-2 rounded-full bg-[#FF4D12]" />
-          <span>SYNCED</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              syncStatus === 'syncing'
+                ? 'bg-[#FFA489] animate-pulse'
+                : syncStatus === 'error'
+                ? 'bg-[#EF4444]'
+                : 'bg-[#10B981]'
+            }`}
+          />
+          <span
+            className={
+              syncStatus === 'syncing'
+                ? 'text-[#FFA489]'
+                : syncStatus === 'error'
+                ? 'text-[#EF4444]'
+                : 'text-[#A0A0A0]'
+            }
+          >
+            {syncStatus === 'syncing'
+              ? 'SUPABASE // SYNCING'
+              : syncStatus === 'error'
+              ? 'SUPABASE // ERROR'
+              : 'SUPABASE // LIVE'}
+          </span>
         </span>
         <span className="text-white">
           {telemetry.doneCount}/{telemetry.total} DONE
@@ -95,4 +119,3 @@ export const Sidebar = memo(function Sidebar({
     </aside>
   );
 });
-

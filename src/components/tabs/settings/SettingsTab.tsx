@@ -11,6 +11,7 @@ interface SettingsTabProps {
   allTasks: Task[];
   onArchiveStatusToHistory: (statuses: BoardStatus | BoardStatus[]) => void;
   onResetDemoData: () => void;
+  syncStatus?: 'syncing' | 'live' | 'error';
 }
 
 export const SettingsTab = memo(function SettingsTab({
@@ -19,6 +20,7 @@ export const SettingsTab = memo(function SettingsTab({
   allTasks,
   onArchiveStatusToHistory,
   onResetDemoData,
+  syncStatus,
 }: SettingsTabProps) {
   return (
     <div className="space-y-6 w-full min-w-0">
@@ -39,6 +41,7 @@ export const SettingsTab = memo(function SettingsTab({
         allTasks={allTasks}
         onArchiveStatusToHistory={onArchiveStatusToHistory}
         onResetDemoData={onResetDemoData}
+        syncStatus={syncStatus}
       />
 
       <PrismaSchemaBlueprint />
