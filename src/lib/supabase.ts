@@ -1,31 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Task, PriorityQuadrant, TaskStatus, DueCadence } from '../types';
 
-const defaultUrl = 'https://mvvbzeueownxlkroqquk.supabase.co';
-const defaultAnonKey =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dmJ6ZXVlb3dueGxrcm9xcXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ1NDk3MjgsImV4cCI6MjExMDEyNTcyOH0.QEylMzRC6pZI_rcRt2oywX8GwMCehjOkwQnrXEWnWAU';
-const defaultSecret = 'taskpilot-personal-2026';
-
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL ||
   import.meta.env.SUPABASE_URL ||
   import.meta.env.NEXT_PUBLIC_SUPABASE_URL ||
-  defaultUrl;
+  '';
 
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   import.meta.env.SUPABASE_ANON_KEY ||
   import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  defaultAnonKey;
+  '';
 
 const secret =
   import.meta.env.VITE_TASKPILOT_SECRET ||
   import.meta.env.TASKPILOT_SECRET ||
-  defaultSecret;
+  '';
 
+// Use placeholder endpoint if hosting environment variables are not yet populated to avoid fatal crash
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
+  supabaseAnonKey || 'placeholder-anon-key',
   {
     global: {
       headers: secret ? { 'x-taskpilot-key': secret } : {},
