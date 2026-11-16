@@ -14,6 +14,7 @@ const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPA
 const TASKPILOT_SECRET = process.env.VITE_TASKPILOT_SECRET || process.env.TASKPILOT_SECRET || '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ALLOWED_USERS = (process.env.TELEGRAM_ALLOWED_USERS || '')
+  .replace(/['"]/g, '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
@@ -38,7 +39,11 @@ async function callTelegram(method, params = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    return await res.json();
+    const json = await res.json();
+    if (!json.ok) {
+      console.error(`Telegram API error on ${method}:`, json);
+    }
+    return json;
   } catch (err) {
     console.error(`Telegram API request to ${method} failed:`, err.message);
     return { ok: false, error: err.message };
@@ -410,7 +415,15 @@ async function handleMessage(message) {
 // Vercel Serverless Function Handler
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    return res.status(200).send('TaskPilot Telegram Bot Webhook is online and healthy.');
+    return res.status(200).json({
+      status: 'online',
+      message: 'TaskPilot Telegram Bot Webhook is online and healthy.',
+      hasToken: Boolean(TELEGRAM_BOT_TOKEN),
+      hasSupabaseUrl: Boolean(SUPABASE_URL),
+      hasSupabaseKey: Boolean(SUPABASE_ANON_KEY || SERVICE_ROLE_KEY),
+      hasSecret: Boolean(TASKPILOT_SECRET),
+      allowedUsersCount: ALLOWED_USERS.length,
+    });
   }
 
   if (req.method !== 'POST') {
@@ -418,7 +431,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const update = req.body;
+    let update = req.body;
+    if (typeof update === 'string') {
+      try {
+        update = JSON.parse(update);
+      } catch (e) {
+        console.error('Failed to parse update string:', e);
+      }
+    }
+
+    console.log('Received Telegram Update:', JSON.stringify(update));
+
     if (update && update.message) {
       await handleMessage(update.message);
     }
