@@ -5,7 +5,6 @@ import {
   Archive,
   History,
   Settings,
-  Compass,
 } from 'lucide-react';
 
 import type {
@@ -44,6 +43,7 @@ import { useDashboardTelemetry } from './hooks/useDashboardTelemetry';
 import { Sidebar } from './components/layout/Sidebar';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { Toast } from './components/common/Toast';
+import { TaskPilotLogo } from './components/common/TaskPilotLogo';
 import { TaskModal } from './components/modal/TaskModal';
 
 import { WelcomeDashboardTab } from './components/tabs/dashboard/WelcomeDashboardTab';
@@ -822,8 +822,8 @@ export default function App() {
       <div className="min-h-screen bg-[#1A1A1A] text-white flex flex-col items-center justify-center p-4">
         <style>{THEME_STYLES}</style>
         <div className="flex flex-col items-center gap-4 text-center max-w-sm">
-          <div className="relative w-14 h-14 rounded-2xl bg-[#FF4D12] flex items-center justify-center shadow-2xl shadow-[#FF4D12]/30 animate-pulse">
-            <Compass className="w-8 h-8 text-white animate-spin" style={{ animationDuration: '4s' }} />
+          <div className="relative flex items-center justify-center shadow-2xl shadow-[#FF4D12]/30 rounded-2xl animate-pulse">
+            <TaskPilotLogo size={64} />
           </div>
           <div>
             <h1 className="font-display text-xl font-bold tracking-tight text-white">TaskPilot</h1>

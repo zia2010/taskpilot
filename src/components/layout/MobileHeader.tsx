@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { Compass, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type { NavTab, NavItemConfig } from '../../types';
+import { TaskPilotLogo } from '../common/TaskPilotLogo';
 
 interface MobileHeaderProps {
   activeTab: NavTab;
@@ -19,9 +20,7 @@ export const MobileHeader = memo(function MobileHeader({
     <header className="lg:hidden sticky top-0 z-30 border-b border-[#222222] bg-[#141414] px-4 py-3 space-y-3 w-full">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-[#FF4D12] flex items-center justify-center">
-            <Compass className="w-4 h-4 text-white" />
-          </div>
+          <TaskPilotLogo size={32} className="shrink-0 shadow-md shadow-[#FF4D12]/20 rounded-lg" />
           <span className="font-display text-base font-bold text-white">TaskPilot</span>
         </div>
 
