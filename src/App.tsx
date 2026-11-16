@@ -54,6 +54,8 @@ import { SettingsTab } from './components/tabs/settings/SettingsTab';
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const tasksRef = useRef<Task[]>(tasks);
+  tasksRef.current = tasks;
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<'syncing' | 'live' | 'error'>('syncing');
 
@@ -468,28 +470,14 @@ export default function App() {
         ? sourceStatuses
         : [sourceStatuses];
       const nowIso = new Date().toISOString();
-      let previousTasks: Task[] = [];
+      const currentTasks = tasksRef.current;
 
-      setTasks((prev) => {
-        previousTasks = prev;
-        return prev.map((t) =>
-          statusesToArchive.includes(t.status as BoardStatus)
-            ? {
-                ...t,
-                status: 'HISTORY',
-                archivedFrom: t.status as 'DONE' | 'CANCELLED',
-                archivedAt: nowIso,
-              }
-            : t
-        );
-      });
-
-      const matchingDoneIds = previousTasks
+      const matchingDoneIds = currentTasks
         .filter(
           (t) => statusesToArchive.includes(t.status as BoardStatus) && t.status === 'DONE'
         )
         .map((t) => t.id);
-      const matchingCancelledIds = previousTasks
+      const matchingCancelledIds = currentTasks
         .filter(
           (t) =>
             statusesToArchive.includes(t.status as BoardStatus) &&
@@ -499,6 +487,19 @@ export default function App() {
 
       const matchingCount = matchingDoneIds.length + matchingCancelledIds.length;
       if (matchingCount === 0) return;
+
+      setTasks((prev) =>
+        prev.map((t) =>
+          statusesToArchive.includes(t.status as BoardStatus)
+            ? {
+                ...t,
+                status: 'HISTORY',
+                archivedFrom: t.status as 'DONE' | 'CANCELLED',
+                archivedAt: nowIso,
+              }
+            : t
+        )
+      );
 
       const label =
         statusesToArchive.length > 1
@@ -540,7 +541,7 @@ export default function App() {
         console.error('Archive to history error:', err);
         setSyncStatus('error');
         triggerToast('Failed to archive tasks to Supabase');
-        setTasks(previousTasks);
+        setTasks(currentTasks);
       }
     },
     [triggerToast]
@@ -604,11 +605,8 @@ export default function App() {
 
   const handlePurgeHistory = useCallback(
     async () => {
-      let originalTasks: Task[] = [];
-      setTasks((prev) => {
-        originalTasks = prev;
-        return prev.filter((t) => t.status !== 'HISTORY');
-      });
+      const currentTasks = tasksRef.current;
+      setTasks((prev) => prev.filter((t) => t.status !== 'HISTORY'));
       triggerToast('Permanently purged all History records');
 
       setSyncStatus('syncing');
@@ -624,7 +622,7 @@ export default function App() {
         console.error('Purge error:', err);
         setSyncStatus('error');
         triggerToast('Failed to purge history in Supabase');
-        setTasks(originalTasks);
+        setTasks(currentTasks);
       }
     },
     [triggerToast]
@@ -632,12 +630,9 @@ export default function App() {
 
   const handleResetDemoData = useCallback(
     async () => {
-      let originalTasks: Task[] = [];
+      const currentTasks = tasksRef.current;
       const newSeed = createSeedTasks();
-      setTasks((prev) => {
-        originalTasks = prev;
-        return newSeed;
-      });
+      setTasks(newSeed);
       triggerToast('Reset workspace to demo dataset');
 
       setSyncStatus('syncing');
@@ -659,7 +654,7 @@ export default function App() {
         console.error('Reset demo data error:', err);
         setSyncStatus('error');
         triggerToast('Failed to reset demo dataset in Supabase');
-        setTasks(originalTasks);
+        setTasks(currentTasks);
       }
     },
     [triggerToast]
@@ -738,11 +733,8 @@ export default function App() {
 
   const handleDeleteTask = useCallback(
     async (id: string) => {
-      let originalTasks: Task[] = [];
-      setTasks((prev) => {
-        originalTasks = prev;
-        return prev.filter((t) => t.id !== id);
-      });
+      const currentTasks = tasksRef.current;
+      setTasks((prev) => prev.filter((t) => t.id !== id));
       setModalState(null);
       triggerToast('Ticket deleted');
 
@@ -755,7 +747,7 @@ export default function App() {
         console.error('Delete task error:', err);
         setSyncStatus('error');
         triggerToast('Failed to delete ticket in Supabase');
-        setTasks(originalTasks);
+        setTasks(currentTasks);
       }
     },
     [triggerToast]
